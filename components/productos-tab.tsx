@@ -15,8 +15,10 @@ import { Plus, Edit, Trash2, Search, X } from "lucide-react"
 import { Pagination } from "@/components/ui/pagination"
 import ExportButtons from "./export-buttons"
 import HelpTooltip from "./help-tooltip"
+import { useAuth } from "@/contexts/auth-context"
 
 export default function ProductosTab({ productos, proveedores }) {
+  const { user } = useAuth()
   const [showDialog, setShowDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -57,6 +59,11 @@ export default function ProductosTab({ productos, proveedores }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
+    if (!user?.id) {
+      console.error("Usuario no autenticado")
+      return
+    }
+
     const productData = {
       ...formData,
       // precio: Number.parseFloat(formData.precio), // Eliminado si solo hay precioVenta
@@ -64,13 +71,14 @@ export default function ProductosTab({ productos, proveedores }) {
       stock: Number.parseInt(formData.stock),
       stockMinimo: Number.parseInt(formData.stockMinimo),
       fechaCreacion: new Date().toISOString(),
+      usuarioId: user.id, // Agregar ID del usuario
     }
 
     try {
       if (editingProduct) {
-        await set(ref(database, `productos/${editingProduct}`), productData)
+        await set(ref(database, `usuarios/${user.id}/productos/${editingProduct}`), productData)
       } else {
-        await push(ref(database, "productos"), productData)
+        await push(ref(database, `usuarios/${user.id}/productos`), productData)
       }
 
       setShowDialog(false)
@@ -93,9 +101,14 @@ export default function ProductosTab({ productos, proveedores }) {
   }
 
   const handleDelete = async (id) => {
+    if (!user?.id) {
+      console.error("Usuario no autenticado")
+      return
+    }
+
     if (confirm("¿Estás seguro de eliminar este producto?")) {
       try {
-        await remove(ref(database, `productos/${id}`))
+        await remove(ref(database, `usuarios/${user.id}/productos/${id}`))
       } catch (error) {
         console.error("Error al eliminar producto:", error)
       }
@@ -189,6 +202,114 @@ export default function ProductosTab({ productos, proveedores }) {
                   Nuevo Producto
                 </Button>
               </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>
+                    {editingProduct ? "Editar Producto" : "Nuevo Producto"}
+                  </DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="codigo">Código</Label>
+                      <Input
+                        id="codigo"
+                        value={formData.codigo}
+                        onChange={(e) => setFormData({ ...formData, codigo: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="nombre">Nombre</Label>
+                      <Input
+                        id="nombre"
+                        value={formData.nombre}
+                        onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="descripcion">Descripción</Label>
+                    <Input
+                      id="descripcion"
+                      value={formData.descripcion}
+                      onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="tipo">Tipo</Label>
+                      <Input
+                        id="tipo"
+                        value={formData.tipo}
+                        onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="proveedor">Proveedor</Label>
+                      <Select value={formData.proveedor} onValueChange={(value) => setFormData({ ...formData, proveedor: value })}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Seleccionar proveedor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(proveedores).map(([id, proveedor]) => (
+                            <SelectItem key={id} value={id}>
+                              {proveedor.nombre}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="precioVenta">Precio Venta</Label>
+                      <Input
+                        id="precioVenta"
+                        type="number"
+                        step="0.01"
+                        value={formData.precioVenta}
+                        onChange={(e) => setFormData({ ...formData, precioVenta: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="stock">Stock</Label>
+                      <Input
+                        id="stock"
+                        type="number"
+                        value={formData.stock}
+                        onChange={(e) => setFormData({ ...formData, stock: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="stockMinimo">Stock Mínimo</Label>
+                      <Input
+                        id="stockMinimo"
+                        type="number"
+                        value={formData.stockMinimo}
+                        onChange={(e) => setFormData({ ...formData, stockMinimo: e.target.value })}
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end space-x-2">
+                    <Button type="button" variant="outline" onClick={() => setShowDialog(false)}>
+                      Cancelar
+                    </Button>
+                    <Button type="submit">
+                      {editingProduct ? "Actualizar" : "Crear"} Producto
+                    </Button>
+                  </div>
+                </form>
+              </DialogContent>
             </Dialog>
           </div>
         </div>

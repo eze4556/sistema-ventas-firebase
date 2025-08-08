@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { ref, onValue } from "firebase/database"
+import { ref, onValue, off } from "firebase/database"
 import { database } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,6 +18,7 @@ import ReportesTab from "@/components/reportes-tab"
 import CustomReports from "@/components/custom-reports"
 import FacturacionTab from "@/components/facturacion-tab"
 import TiendaTab from "@/components/tienda-tab"
+import DataMigration from "@/components/data-migration"
 import { useOptimizedRealtimeData } from "@/hooks/useOptimizedQueries"
 
 export default function Dashboard({ user, onLogout }) {
@@ -26,11 +27,33 @@ export default function Dashboard({ user, onLogout }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [stockAlertsMinimized, setStockAlertsMinimized] = useState(false)
   const [empresaInfo, setEmpresaInfo] = useState(null)
+  const [showMigration, setShowMigration] = useState(false)
 
-  // Usar consultas optimizadas
-  const { data: productos, loading: productosLoading } = useOptimizedRealtimeData("productos")
-  const { data: proveedores, loading: proveedoresLoading } = useOptimizedRealtimeData("proveedores")
-  const { data: ventas, loading: ventasLoading } = useOptimizedRealtimeData("ventas")
+  // Usar consultas optimizadas con filtro por usuario
+  const { data: productos, loading: productosLoading } = useOptimizedRealtimeData(`usuarios/${user?.id}/productos`)
+  const { data: proveedores, loading: proveedoresLoading } = useOptimizedRealtimeData(`usuarios/${user?.id}/proveedores`)
+  const { data: ventas, loading: ventasLoading } = useOptimizedRealtimeData(`usuarios/${user?.id}/ventas`)
+
+  // Verificar si hay datos en el formato anterior
+  useEffect(() => {
+    const checkOldData = async () => {
+      try {
+        const oldProductosRef = ref(database, "productos")
+        const oldProductosSnapshot = await onValue(oldProductosRef, (snapshot) => {
+          if (snapshot.exists() && Object.keys(productos || {}).length === 0) {
+            setShowMigration(true)
+          }
+        })
+        return () => off(oldProductosRef, 'value', oldProductosSnapshot)
+      } catch (error) {
+        console.error("Error verificando datos antiguos:", error)
+      }
+    }
+    
+    if (user?.id) {
+      checkOldData()
+    }
+  }, [user, productos])
 
   // Cargar información de la empresa si el usuario tiene una
   useEffect(() => {
@@ -244,6 +267,13 @@ export default function Dashboard({ user, onLogout }) {
       </header>
 
       <main className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-4 sm:py-8">
+        {/* Migración de datos */}
+        {showMigration && (
+          <div className="mb-6">
+            <DataMigration />
+          </div>
+        )}
+
         {/* Alertas de Stock Bajo con opción de minimizar/maximizar */}
         {stockBajo.length > 0 && (
           <div className="mb-4 sm:mb-6">

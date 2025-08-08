@@ -15,8 +15,10 @@ import { Plus, Trash2, Search, Filter, X, CreditCard } from "lucide-react"
 import { Pagination } from "@/components/ui/pagination"
 import ExportButtons from "./export-buttons"
 import HelpTooltip from "./help-tooltip"
+import { useAuth } from "@/contexts/auth-context"
 
 export default function VentasTab({ productos, ventas, proveedores, triggerNewSale }) {
+  const { user } = useAuth()
   const [showDialog, setShowDialog] = useState(false)
   const [carrito, setCarrito] = useState([])
   const [cliente, setCliente] = useState("")
@@ -102,7 +104,7 @@ export default function VentasTab({ productos, ventas, proveedores, triggerNewSa
   }
 
   const procesarVenta = async () => {
-    if (carrito.length === 0 || !cliente || pagos.length === 0) return
+    if (carrito.length === 0 || !cliente || pagos.length === 0 || !user?.id) return
 
     const totalVenta = calcularTotal()
     const totalPagado = calcularTotalPagos()
@@ -128,17 +130,18 @@ export default function VentasTab({ productos, ventas, proveedores, triggerNewSa
       items: carrito,
       total: totalVenta,
       fecha: new Date().toISOString(),
+      usuarioId: user.id, // Agregar ID del usuario
     }
 
     try {
       // Crear la venta
-      await push(ref(database, "ventas"), ventaData)
+      await push(ref(database, `usuarios/${user.id}/ventas`), ventaData)
 
       // Actualizar stock de productos
       const updates = {}
       carrito.forEach((item) => {
         const nuevoStock = productos[item.id].stock - item.cantidad
-        updates[`productos/${item.id}/stock`] = nuevoStock
+        updates[`usuarios/${user.id}/productos/${item.id}/stock`] = nuevoStock
       })
 
       await update(ref(database), updates)
@@ -156,6 +159,11 @@ export default function VentasTab({ productos, ventas, proveedores, triggerNewSa
   }
 
   const eliminarVenta = async (ventaId, venta) => {
+    if (!user?.id) {
+      console.error("Usuario no autenticado")
+      return
+    }
+
     if (
       !confirm(
         `¿Estás seguro de eliminar la venta de ${venta.cliente}? Esta acción restaurará el stock de los productos.`,
@@ -170,7 +178,7 @@ export default function VentasTab({ productos, ventas, proveedores, triggerNewSa
       venta.items?.forEach((item) => {
         if (productos[item.id]) {
           const nuevoStock = productos[item.id].stock + item.cantidad
-          updates[`productos/${item.id}/stock`] = nuevoStock
+          updates[`usuarios/${user.id}/productos/${item.id}/stock`] = nuevoStock
         }
       })
 
@@ -180,7 +188,7 @@ export default function VentasTab({ productos, ventas, proveedores, triggerNewSa
       }
 
       // Eliminar la venta
-      await remove(ref(database, `ventas/${ventaId}`))
+      await remove(ref(database, `usuarios/${user.id}/ventas/${ventaId}`))
 
       alert("Venta eliminada exitosamente y stock restaurado")
     } catch (error) {

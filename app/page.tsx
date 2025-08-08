@@ -142,6 +142,15 @@ export default function Home() {
             
             <div className="text-xs text-muted-foreground text-center">
               <p>Sistema de Gestión Completo</p>
+              <button 
+                onClick={() => {
+                  localStorage.removeItem('controlStockSession')
+                  window.location.reload()
+                }}
+                className="text-blue-600 hover:text-blue-800 underline mt-2"
+              >
+                Limpiar sesión
+              </button>
             </div>
           </CardContent>
         </Card>

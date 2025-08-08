@@ -14,8 +14,10 @@ import { Plus, Edit, Trash2, TrendingUp } from "lucide-react"
 import { Pagination } from "@/components/ui/pagination"
 import ExportButtons from "./export-buttons"
 import HelpTooltip from "./help-tooltip"
+import { useAuth } from "@/contexts/auth-context"
 
 export default function ProveedoresTab({ proveedores, productos }) {
+  const { user } = useAuth()
   const [showDialog, setShowDialog] = useState(false)
   const [showPriceDialog, setShowPriceDialog] = useState(false)
   const [editingProveedor, setEditingProveedor] = useState(null)
@@ -49,11 +51,21 @@ export default function ProveedoresTab({ proveedores, productos }) {
   const handleSubmit = async (e) => {
     e.preventDefault()
 
+    if (!user?.id) {
+      console.error("Usuario no autenticado")
+      return
+    }
+
+    const proveedorData = {
+      ...formData,
+      usuarioId: user.id, // Agregar ID del usuario
+    }
+
     try {
       if (editingProveedor) {
-        await set(ref(database, `proveedores/${editingProveedor}`), formData)
+        await set(ref(database, `usuarios/${user.id}/proveedores/${editingProveedor}`), proveedorData)
       } else {
-        await push(ref(database, "proveedores"), formData)
+        await push(ref(database, `usuarios/${user.id}/proveedores`), proveedorData)
       }
 
       setShowDialog(false)
@@ -70,9 +82,14 @@ export default function ProveedoresTab({ proveedores, productos }) {
   }
 
   const handleDelete = async (id) => {
+    if (!user?.id) {
+      console.error("Usuario no autenticado")
+      return
+    }
+
     if (confirm("¿Estás seguro de eliminar este proveedor?")) {
       try {
-        await remove(ref(database, `proveedores/${id}`))
+        await remove(ref(database, `usuarios/${user.id}/proveedores/${id}`))
       } catch (error) {
         console.error("Error al eliminar proveedor:", error)
       }
@@ -80,7 +97,7 @@ export default function ProveedoresTab({ proveedores, productos }) {
   }
 
   const handlePriceAdjustment = async () => {
-    if (!selectedProveedor || !porcentajeAjuste) return
+    if (!selectedProveedor || !porcentajeAjuste || !user?.id) return
 
     const porcentaje = Number.parseFloat(porcentajeAjuste) / 100
     const factor = tipoAjuste === "aumento" ? 1 + porcentaje : 1 - porcentaje
@@ -88,7 +105,7 @@ export default function ProveedoresTab({ proveedores, productos }) {
     let productosAfectados = []
 
     if (selectedProveedor === "todos") {
-      // Actualizar TODOS los productos
+      // Actualizar TODOS los productos del usuario
       productosAfectados = Object.entries(productos)
     } else {
       // Actualizar solo productos del proveedor seleccionado
@@ -100,33 +117,15 @@ export default function ProveedoresTab({ proveedores, productos }) {
     try {
       const updates = {}
       productosAfectados.forEach(([id, producto]) => {
-        // Actualizar precio de venta
-        const nuevoPrecioVenta = (producto.precioVenta || producto.precio) * factor
-        updates[`productos/${id}/precioVenta`] = Number.parseFloat(nuevoPrecioVenta.toFixed(2))
-        updates[`productos/${id}/precio`] = Number.parseFloat(nuevoPrecioVenta.toFixed(2))
-
-        // Si también se ajusta el precio de compra
-        if (producto.precioCompra) {
-          const nuevoPrecioCompra = producto.precioCompra * factor
-          updates[`productos/${id}/precioCompra`] = Number.parseFloat(nuevoPrecioCompra.toFixed(2))
-        }
+        updates[`usuarios/${user.id}/productos/${id}/precioVenta`] = producto.precioVenta * factor
       })
 
       await update(ref(database), updates)
-
       setShowPriceDialog(false)
-      setSelectedProveedor(null)
       setPorcentajeAjuste("")
-      setTipoAjuste("aumento")
-
-      const proveedorNombre =
-        selectedProveedor === "todos" ? "TODOS LOS PROVEEDORES" : proveedores[selectedProveedor]?.nombre
-
-      const accion = tipoAjuste === "aumento" ? "aumentados" : "reducidos"
-      alert(`✅ Precios ${accion} para ${productosAfectados.length} productos de ${proveedorNombre}`)
+      setSelectedProveedor(null)
     } catch (error) {
-      console.error("Error al actualizar precios:", error)
-      alert("❌ Error al actualizar precios")
+      console.error("Error al ajustar precios:", error)
     }
   }
 
