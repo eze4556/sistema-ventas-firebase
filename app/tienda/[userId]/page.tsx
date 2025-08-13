@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Search, Share2, ShoppingCart, Image, Phone, MapPin, Clock, Instagram, Facebook, Share } from "lucide-react"
+import { Search, Share2, ShoppingCart, Image, Phone, MapPin, Clock, Instagram, Facebook, Store } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Pagination } from "@/components/ui/pagination"
 import { useClient } from "@/hooks/use-client"
@@ -61,67 +61,83 @@ export default function TiendaPublica({ params }: { params: Promise<{ userId: st
   const itemsPerPage = 12
 
   const isClient = useClient()
+  const [catalogUrl, setCatalogUrl] = useState("")
+
+  useEffect(() => {
+    if (isClient) {
+      setCatalogUrl(window.location.href)
+    }
+  }, [isClient])
 
   useEffect(() => {
     const cargarTienda = async () => {
+      setLoading(true)
       try {
-        // Cargar configuración de la tienda
         const configRef = ref(database, `tiendas/${userId}/config`)
-        const configSnapshot = await get(configRef)
+        const productosRef = ref(database, `tiendas/${userId}/productos`)
+
+        const [configSnapshot, productosSnapshot] = await Promise.all([
+          get(configRef),
+          get(productosRef)
+        ]);
+
         if (configSnapshot.exists()) {
           setTiendaConfig(configSnapshot.val())
         }
 
-        // Cargar productos
-        const productosRef = ref(database, `tiendas/${userId}/productos`)
-        const productosSnapshot = await get(productosRef)
         if (productosSnapshot.exists()) {
           setProductos(productosSnapshot.val())
+        } else {
+          setProductos({})
         }
       } catch (error) {
         console.error("Error al cargar la tienda:", error)
+        setProductos({})
       } finally {
         setLoading(false)
       }
     }
 
-    cargarTienda()
+    if (userId) {
+      cargarTienda()
+    }
   }, [userId])
 
-  // Filtrar productos
   const productosFiltrados = Object.entries(productos || {})
-    .filter(([id, producto]) => {
-      const matchesSearch = producto.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           producto.descripcion?.toLowerCase().includes(searchTerm.toLowerCase())
-      const matchesCategoria = filterCategoria === "todas" || producto.categoria === filterCategoria
+    .map(([id, producto]) => ({ ...producto, id }))
+    .filter(producto => {
       const isActive = producto.activo && producto.stock > 0
-      
-      return matchesSearch && matchesCategoria && isActive
-    })
-    .map(([id, producto]) => ({ id, ...producto }))
+      if (!isActive) return false
 
-  // Paginación
+      const matchesSearch = searchTerm.trim() === '' ||
+                           producto.nombre?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           producto.descripcion?.toLowerCase().includes(searchTerm.toLowerCase())
+      
+      const matchesCategoria = filterCategoria === "todas" || producto.categoria === filterCategoria
+      
+      return matchesSearch && matchesCategoria
+    })
+
   const totalPages = Math.ceil(productosFiltrados.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const productosPaginados = productosFiltrados.slice(startIndex, startIndex + itemsPerPage)
+  const productosPaginados = productosFiltrados.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
   const categorias = [...new Set(Object.values(productos || {}).map(p => p.categoria).filter(Boolean))]
 
   const generateWhatsAppMessage = (producto: Producto) => {
-    const mensaje = `¡Hola! Quiero comprar:\n\n` +
+    return encodeURIComponent(
+      `¡Hola! Quiero comprar:\n\n` +
       `*${producto.nombre}*\n` +
       `${producto.descripcion}\n\n` +
       `💰 Precio: $${producto.precio}\n` +
       `📦 Stock disponible: ${producto.stock} unidades\n\n` +
       `¿Tienes stock disponible?`
-    
-    return encodeURIComponent(mensaje)
+    )
   }
 
   const shareTienda = () => {
     const mensaje = `¡Hola! Te comparto el catálogo de ${tiendaConfig.nombre}:\n\n` +
       `${tiendaConfig.descripcion}\n\n` +
-      `🛍️ Ver productos: ${window.location.href}\n\n` +
+      `🛍️ Ver productos: ${catalogUrl}\n\n` +
       `📞 Contacto: ${tiendaConfig.whatsapp || tiendaConfig.telefono}`
     
     const whatsappURL = `https://wa.me/?text=${encodeURIComponent(mensaje)}`
@@ -134,111 +150,89 @@ export default function TiendaPublica({ params }: { params: Promise<{ userId: st
     setCurrentPage(1)
   }
 
-  const recargarProductos = async () => {
-    setLoading(true)
-    try {
-      // Cargar productos
-      const productosRef = ref(database, `tiendas/${userId}/productos`)
-      const productosSnapshot = await get(productosRef)
-      if (productosSnapshot.exists()) {
-        setProductos(productosSnapshot.val())
-      } else {
-        setProductos({})
-      }
-    } catch (error) {
-      console.error("Error al recargar productos:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">Cargando catálogo...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto"></div>
+          <p className="mt-4 text-slate-500 dark:text-slate-400">Cargando catálogo...</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      {/* Header de la Tienda */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-200">
+      <header className="bg-gradient-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 shadow-sm border-b border-slate-200 dark:border-slate-700">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-5">
               {tiendaConfig.logo ? (
                 <img 
                   src={tiendaConfig.logo} 
                   alt={tiendaConfig.nombre}
-                  className="w-16 h-16 rounded-full object-cover"
+                  className="w-24 h-24 rounded-full object-cover border-4 border-white dark:border-slate-700 shadow-lg"
                 />
               ) : (
-                <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
-                  <ShoppingCart className="h-8 w-8 text-white" />
+                <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center border-4 border-white dark:border-slate-700 shadow-lg">
+                  <Store className="h-12 w-12 text-white" />
                 </div>
               )}
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{tiendaConfig.nombre}</h1>
-                <p className="text-gray-600">{tiendaConfig.descripcion}</p>
+                <h1 className="text-4xl font-bold tracking-tight text-slate-900 dark:text-white">{tiendaConfig.nombre}</h1>
+                <p className="text-lg text-slate-600 dark:text-slate-400 mt-1">{tiendaConfig.descripcion}</p>
               </div>
             </div>
             
             <div className="flex items-center gap-3">
               <ClientOnly
                 fallback={
-                  <Button 
-                    className="bg-green-600 hover:bg-green-700"
-                    disabled
-                  >
-                    <Share2 className="h-4 w-4 mr-2" />
+                  <Button variant="outline" disabled size="lg" className="rounded-full shadow-lg">
+                    <Share2 className="h-5 w-5 mr-2" />
                     Compartir Tienda
                   </Button>
                 }
               >
                 <Button 
                   onClick={shareTienda} 
-                  className="bg-green-600 hover:bg-green-700"
+                  variant="outline"
+                  size="lg"
+                  className="rounded-full shadow-lg bg-white/50 dark:bg-slate-800/50 backdrop-blur-lg border-slate-300 dark:border-slate-600 hover:bg-white/80 dark:hover:bg-slate-800/80"
                 >
-                  <Share2 className="h-4 w-4 mr-2" />
+                  <Share2 className="h-5 w-5 mr-2" />
                   Compartir Tienda
                 </Button>
               </ClientOnly>
             </div>
           </div>
 
-          {/* Información de contacto */}
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+          <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
             {tiendaConfig.telefono && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <Phone className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                <Phone className="h-4 w-4 text-indigo-500" />
                 <span>{tiendaConfig.telefono}</span>
               </div>
             )}
             {tiendaConfig.whatsapp && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <ShoppingCart className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                <ShoppingCart className="h-4 w-4 text-indigo-500" />
                 <span>WhatsApp: {tiendaConfig.whatsapp}</span>
               </div>
             )}
             {tiendaConfig.direccion && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <MapPin className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                <MapPin className="h-4 w-4 text-indigo-500" />
                 <span>{tiendaConfig.direccion}</span>
               </div>
             )}
             {tiendaConfig.horarios && (
-              <div className="flex items-center gap-2 text-gray-600">
-                <Clock className="h-4 w-4" />
+              <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                <Clock className="h-4 w-4 text-indigo-500" />
                 <span>{tiendaConfig.horarios}</span>
               </div>
             )}
           </div>
 
-          {/* Redes sociales */}
           {(tiendaConfig.redesSociales?.instagram || tiendaConfig.redesSociales?.facebook) && (
             <div className="mt-4 flex items-center gap-4">
               {tiendaConfig.redesSociales?.instagram && (
@@ -246,9 +240,9 @@ export default function TiendaPublica({ params }: { params: Promise<{ userId: st
                   href={`https://instagram.com/${tiendaConfig.redesSociales.instagram}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-pink-600 hover:text-pink-700"
+                  className="flex items-center gap-2 text-slate-600 hover:text-pink-600 dark:text-slate-400 dark:hover:text-pink-500 transition-colors"
                 >
-                  <Instagram className="h-4 w-4" />
+                  <Instagram className="h-5 w-5" />
                   <span>@{tiendaConfig.redesSociales.instagram}</span>
                 </a>
               )}
@@ -257,34 +251,33 @@ export default function TiendaPublica({ params }: { params: Promise<{ userId: st
                   href={`https://facebook.com/${tiendaConfig.redesSociales.facebook}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-blue-600 hover:text-blue-700"
+                  className="flex items-center gap-2 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-500 transition-colors"
                 >
-                  <Facebook className="h-4 w-4" />
+                  <Facebook className="h-5 w-5" />
                   <span>{tiendaConfig.redesSociales.facebook}</span>
                 </a>
               )}
             </div>
           )}
         </div>
-      </div>
+      </header>
 
-      {/* Contenido principal */}
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* Controles de búsqueda y filtros */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-8">
-          <div className="flex flex-col sm:flex-row gap-2 flex-1">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="flex flex-col md:flex-row gap-6 items-center justify-between mb-10">
+          <h2 className="text-3xl font-bold text-slate-900 dark:text-white">Nuestro Catálogo</h2>
+          <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+            <div className="relative flex-1 md:min-w-[250px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
               <Input
                 placeholder="Buscar productos..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8"
+                className="pl-10 py-2 rounded-full bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600"
               />
             </div>
             
             <Select value={filterCategoria} onValueChange={setFilterCategoria}>
-              <SelectTrigger className="w-full sm:w-[180px]">
+              <SelectTrigger className="w-full sm:w-[200px] rounded-full bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600">
                 <SelectValue placeholder="Todas las categorías" />
               </SelectTrigger>
               <SelectContent>
@@ -298,93 +291,91 @@ export default function TiendaPublica({ params }: { params: Promise<{ userId: st
             </Select>
 
             {(searchTerm || (filterCategoria && filterCategoria !== "todas")) && (
-              <Button variant="outline" onClick={limpiarFiltros} size="sm">
-                Limpiar
+              <Button variant="ghost" onClick={limpiarFiltros} size="sm" className="rounded-full">
+                Limpiar filtros
               </Button>
             )}
           </div>
-
-          <div className="text-sm text-gray-600">
-            {productosFiltrados.length} productos encontrados
-          </div>
         </div>
 
-        {/* Grid de Productos */}
         {productosFiltrados.length === 0 ? (
-          <div className="text-center py-12">
-            <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No se encontraron productos</h3>
-            <p className="text-gray-600">Intenta ajustar los filtros de búsqueda</p>
+          <div className="text-center py-20">
+            <div className="inline-block p-6 bg-indigo-100 dark:bg-indigo-500/20 rounded-full">
+              <ShoppingCart className="h-20 w-20 text-indigo-500 dark:text-indigo-400" />
+            </div>
+            <h3 className="text-2xl font-semibold text-slate-900 dark:text-white mt-6">No se encontraron productos</h3>
+            <p className="text-slate-600 dark:text-slate-400 mt-2">Intenta ajustar los filtros o revisa más tarde.</p>
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
               {productosPaginados.map((producto) => (
-                <Card key={producto.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                <Card key={producto.id} className="overflow-hidden rounded-xl border-0 bg-white/50 dark:bg-slate-800/50 backdrop-blur-lg shadow-lg transition-all duration-300 hover:shadow-2xl hover:-translate-y-2 flex flex-col">
                   <div className="relative">
-                    {producto.imagen ? (
-                      <img
-                        src={producto.imagen}
-                        alt={producto.nombre}
-                        className="w-full h-48 object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-48 bg-muted flex items-center justify-center">
-                        <Image className="h-12 w-12 text-muted-foreground" />
-                      </div>
-                    )}
-                    
+                    <div className="aspect-video w-full overflow-hidden">
+                      {producto.imagen ? (
+                        <img
+                          src={producto.imagen}
+                          alt={producto.nombre}
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center">
+                          <Image className="h-16 w-16 text-slate-400 dark:text-slate-500" />
+                        </div>
+                      )}
+                    </div>
                     {producto.destacado && (
-                      <Badge className="absolute top-2 left-2 bg-yellow-500">
+                      <Badge className="absolute top-3 left-3 bg-amber-400 text-amber-900 font-semibold py-1 px-3 rounded-full shadow-md">
                         Destacado
                       </Badge>
                     )}
                   </div>
 
-                  <CardContent className="p-4">
-                    <div className="space-y-2">
-                      <h3 className="font-semibold text-lg truncate">{producto.nombre}</h3>
-                      <p className="text-sm text-muted-foreground line-clamp-2">
-                        {producto.descripcion}
-                      </p>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-lg font-bold text-green-600">
-                          ${producto.precio}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          Stock: {producto.stock}
-                        </span>
-                      </div>
-
+                  <CardContent className="p-5 flex flex-col flex-grow">
+                    <div className="space-y-3 flex-grow">
                       {producto.categoria && (
-                        <Badge variant="outline" className="text-xs">
+                        <Badge variant="outline" className="text-xs font-medium text-indigo-600 border-indigo-300 dark:text-indigo-400 dark:border-indigo-500/50">
                           {producto.categoria}
                         </Badge>
                       )}
+                      <h3 className="font-bold text-xl text-slate-900 dark:text-white truncate">{producto.nombre}</h3>
+                      <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2 h-[40px]">
+                        {producto.descripcion}
+                      </p>
+                      
+                      <div className="flex items-baseline justify-between pt-2">
+                        <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                          ${producto.precio}
+                        </span>
+                        <span className="text-sm text-slate-500 dark:text-slate-400">
+                          Stock: {producto.stock}
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Botón Comprar por WhatsApp */}
                     <ClientOnly
                       fallback={
-                        <Button
-                          className="w-full mt-4 bg-green-600 hover:bg-green-700"
-                          disabled
-                        >
-                          <ShoppingCart className="h-4 w-4 mr-2" />
+                        <Button className="w-full mt-4 font-semibold rounded-lg" size="lg" disabled>
+                          <ShoppingCart className="h-5 w-5 mr-2" />
                           Comprar por WhatsApp
                         </Button>
                       }
                     >
                       <Button
-                        className="w-full mt-4 bg-green-600 hover:bg-green-700"
+                        className="w-full mt-4 font-semibold rounded-lg bg-green-600 hover:bg-green-700 text-white transition-transform transform hover:scale-105 shadow-md hover:shadow-lg"
+                        size="lg"
                         onClick={() => {
+                          if (!tiendaConfig.whatsapp) {
+                            alert("No hay número de WhatsApp configurado para la tienda.")
+                            return
+                          }
                           const mensaje = generateWhatsAppMessage(producto)
                           const whatsappURL = `https://wa.me/${tiendaConfig.whatsapp}?text=${mensaje}`
                           window.open(whatsappURL, '_blank')
                         }}
                       >
-                        <ShoppingCart className="h-4 w-4 mr-2" />
+                        <ShoppingCart className="h-5 w-5 mr-2" />
                         Comprar por WhatsApp
                       </Button>
                     </ClientOnly>
@@ -393,33 +384,21 @@ export default function TiendaPublica({ params }: { params: Promise<{ userId: st
               ))}
             </div>
 
-            {/* Paginación */}
             {totalPages > 1 && (
-              <div className="flex justify-center mt-8">
-                <Pagination>
-                  <Pagination.Prev
-                    onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                    disabled={currentPage === 1}
-                  />
-                  <Pagination.Item>{currentPage} de {totalPages}</Pagination.Item>
-                  <Pagination.Next
-                    onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                    disabled={currentPage === totalPages}
-                  />
-                </Pagination>
+              <div className="flex justify-center mt-12">
+                 <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
               </div>
             )}
           </>
         )}
-      </div>
+      </main>
 
-      {/* Footer */}
-      <div className="bg-white border-t mt-12">
-        <div className="max-w-7xl mx-auto px-4 py-6 text-center text-gray-600">
-          <p>© 2024 {tiendaConfig.nombre}. Todos los derechos reservados.</p>
-          <p className="text-sm mt-2">Catálogo generado automáticamente</p>
+      <footer className="bg-white dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700 mt-16">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center text-slate-500 dark:text-slate-400">
+          <p className="text-sm">&copy; {new Date().getFullYear()} {tiendaConfig.nombre}. Todos los derechos reservados.</p>
+          <p className="text-xs mt-2">Catálogo impulsado por ControlStock.</p>
         </div>
-      </div>
+      </footer>
     </div>
   )
-} 
+}

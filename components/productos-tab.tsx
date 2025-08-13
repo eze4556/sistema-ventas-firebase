@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { ref, push, set, remove } from "firebase/database"
+import { ref, set, remove, get } from "firebase/database"
 import { database } from "@/lib/firebase"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,8 +17,9 @@ import ExportButtons from "./export-buttons"
 import HelpTooltip from "./help-tooltip"
 import { useAuth } from "@/contexts/auth-context"
 
-export default function ProductosTab({ productos, proveedores }) {
+export default function ProductosTab({ proveedores }) {
   const { user } = useAuth()
+  const [productos, setProductos] = useState({})
   const [showDialog, setShowDialog] = useState(false)
   const [editingProduct, setEditingProduct] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -56,71 +57,26 @@ export default function ProductosTab({ productos, proveedores }) {
     setEditingProduct(null)
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  const generarIdProducto = () => {
+    // Genera un id único simple (puedes usar uuid si lo prefieres)
+    return "prod_" + Math.random().toString(36).substr(2, 9)
+  }
 
-    if (!user?.id) {
-      console.error("Usuario no autenticado")
-      return
-    }
-
-    const productData = {
-      ...formData,
-      // precio: Number.parseFloat(formData.precio), // Eliminado si solo hay precioVenta
-      precioVenta: Number.parseFloat(formData.precioVenta), // Asegurarse de que se use este
-      stock: Number.parseInt(formData.stock),
-      stockMinimo: Number.parseInt(formData.stockMinimo),
-      fechaCreacion: new Date().toISOString(),
-      usuarioId: user.id, // Agregar ID del usuario
-    }
-
-    try {
-      if (editingProduct) {
-        await set(ref(database, `usuarios/${user.id}/productos/${editingProduct}`), productData)
-      } else {
-        await push(ref(database, `usuarios/${user.id}/productos`), productData)
-      }
-
-      setShowDialog(false)
-      resetForm()
-    } catch (error) {
-      console.error("Error al guardar producto:", error)
+  // Cargar productos desde Firebase
+  const cargarProductos = async () => {
+    if (!user?.id) return
+    const productosRef = ref(database, `tiendas/${user.id}/productos`)
+    const snapshot = await get(productosRef)
+    if (snapshot.exists()) {
+      setProductos(snapshot.val())
+    } else {
+      setProductos({})
     }
   }
 
-  const handleEdit = (id, producto) => {
-    setEditingProduct(id)
-    // Asegurarse de que los campos de precio de compra y venta estén presentes
-    const productToEdit = {
-      ...producto,
-      // precioCompra: producto.precioCompra || producto.precio, // Eliminado
-      precioVenta: producto.precioVenta || producto.precio, // Asegurarse de que se use este
-    }
-    setFormData(productToEdit)
-    setShowDialog(true)
-  }
-
-  const handleDelete = async (id) => {
-    if (!user?.id) {
-      console.error("Usuario no autenticado")
-      return
-    }
-
-    if (confirm("¿Estás seguro de eliminar este producto?")) {
-      try {
-        await remove(ref(database, `usuarios/${user.id}/productos/${id}`))
-      } catch (error) {
-        console.error("Error al eliminar producto:", error)
-      }
-    }
-  }
-
-  // Limpiar filtros
-  const limpiarFiltros = () => {
-    setSearchTerm("")
-    setFilterProveedor("")
-    setFilterTipo("")
-  }
+  useEffect(() => {
+    cargarProductos()
+  }, [user?.id])
 
   // Filtrar productos
   const productosArray = Object.entries(productos).map(([id, producto]) => ({
@@ -149,6 +105,88 @@ export default function ProductosTab({ productos, proveedores }) {
 
   // Obtener tipos únicos
   const tiposUnicos = [...new Set(productosArray.map((p) => p.tipo).filter(Boolean))]
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+
+    if (!user?.id) {
+      alert("Usuario no autenticado")
+      return
+    }
+
+    // Validación de campos obligatorios
+    if (
+      !formData.nombre.trim() ||
+      !formData.codigo.trim() ||
+      !formData.tipo.trim() ||
+      !formData.proveedor.trim() ||
+      !formData.precioVenta ||
+      isNaN(Number(formData.precioVenta)) ||
+      !formData.stock ||
+      isNaN(Number(formData.stock)) ||
+      !formData.stockMinimo ||
+      isNaN(Number(formData.stockMinimo))
+    ) {
+      alert("Completa todos los campos obligatorios correctamente.")
+      return
+    }
+
+    const productId = editingProduct || generarIdProducto()
+    const productData = {
+      ...formData,
+      precioVenta: Number.parseFloat(formData.precioVenta),
+      stock: Number.parseInt(formData.stock),
+      stockMinimo: Number.parseInt(formData.stockMinimo),
+      fechaCreacion: new Date().toISOString(),
+      usuarioId: user.id,
+      id: productId,
+    }
+
+    try {
+      await set(ref(database, `tiendas/${user.id}/productos/${productId}`), productData)
+      setShowDialog(false)
+      resetForm()
+      await cargarProductos()
+    } catch (error) {
+      alert("Error al guardar producto: " + error.message)
+      console.error("Error al guardar producto:", error)
+    }
+  }
+
+  const handleEdit = (id, producto) => {
+    setEditingProduct(id)
+    // Asegurarse de que los campos de precio de compra y venta estén presentes
+    const productToEdit = {
+      ...producto,
+      // precioCompra: producto.precioCompra || producto.precio, // Eliminado
+      precioVenta: producto.precioVenta || producto.precio, // Asegurarse de que se use este
+    }
+    setFormData(productToEdit)
+    setShowDialog(true)
+  }
+
+  const handleDelete = async (id) => {
+    if (!user?.id) {
+      console.error("Usuario no autenticado")
+      return
+    }
+
+    if (confirm("¿Estás seguro de eliminar este producto?")) {
+      try {
+        await remove(ref(database, `tiendas/${user.id}/productos/${id}`))
+        await cargarProductos() // Recargar productos después de eliminar
+      } catch (error) {
+        console.error("Error al eliminar producto:", error)
+      }
+    }
+  }
+
+  // Limpiar filtros
+  const limpiarFiltros = () => {
+    setSearchTerm("")
+    setFilterProveedor("")
+    setFilterTipo("")
+  }
 
   return (
     <Card>

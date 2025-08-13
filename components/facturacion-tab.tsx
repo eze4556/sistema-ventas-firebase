@@ -37,6 +37,7 @@ import { generarFacturaPDF } from "./factura-pdf-generator"
 import { jsPDF } from "jspdf"
 import autoTable from "jspdf-autotable"
 import { generarFacturaEmail } from "./factura-pdf-generator"
+import { useAuth } from "@/contexts/auth-context"
 
 interface Factura {
   id: string
@@ -71,6 +72,7 @@ interface FacturacionTabProps {
 }
 
 export default function FacturacionTab({ ventas, productos, proveedores }: FacturacionTabProps) {
+  const { user } = useAuth()
   const [facturas, setFacturas] = useState<Factura[]>([])
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedVenta, setSelectedVenta] = useState<any>(null)
@@ -103,8 +105,9 @@ export default function FacturacionTab({ ventas, productos, proveedores }: Factu
   // Cargar facturas desde Firebase
   useEffect(() => {
     const cargarFacturas = async () => {
+      if (!user?.id) return
       try {
-        const facturasRef = ref(database, 'facturas')
+        const facturasRef = ref(database, `usuarios/${user.id}/facturas`)
         const snapshot = await get(facturasRef)
         if (snapshot.exists()) {
           const facturasData = Object.entries(snapshot.val()).map(([id, factura]: [string, any]) => ({
@@ -112,6 +115,8 @@ export default function FacturacionTab({ ventas, productos, proveedores }: Factu
             ...factura
           }))
           setFacturas(facturasData)
+        } else {
+          setFacturas([])
         }
       } catch (error) {
         console.error("Error al cargar facturas:", error)
@@ -119,7 +124,7 @@ export default function FacturacionTab({ ventas, productos, proveedores }: Factu
     }
 
     cargarFacturas()
-  }, [])
+  }, [user])
 
   // Generar número de factura automático
   const generarNumeroFactura = () => {
@@ -133,12 +138,11 @@ export default function FacturacionTab({ ventas, productos, proveedores }: Factu
 
   // Crear factura desde venta
   const crearFacturaDesdeVenta = async () => {
-    if (!selectedVenta) return
+    if (!selectedVenta || !user?.id) return
 
     const numeroFactura = generarNumeroFactura()
     
-    const factura: Factura = {
-      id: Date.now().toString(),
+    const factura: Omit<Factura, 'id'> = {
       numero: numeroFactura,
       fecha: new Date().toISOString(),
       cliente: {
@@ -168,8 +172,9 @@ export default function FacturacionTab({ ventas, productos, proveedores }: Factu
     }
 
     try {
-      await push(ref(database, 'facturas'), factura)
-      setFacturas([...facturas, factura])
+      const newFacturaRef = await push(ref(database, `usuarios/${user.id}/facturas`), factura)
+      const newFacturaId = newFacturaRef.key
+      setFacturas(prev => [...prev, { id: newFacturaId, ...factura }])
       setShowCreateDialog(false)
       setSelectedVenta(null)
     } catch (error) {
